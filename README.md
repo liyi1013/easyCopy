@@ -96,3 +96,7 @@ go run main.go
 - Firefox 63+
 - Safari 13.1+
 - Edge 79+
+
+
+## no996
+https://996.icu/#/zh_CN
