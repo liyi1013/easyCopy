@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>剪贴板管理器 - 演示版</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container { max-width: 800px; margin: 0 auto; }
+        h1 {
+            color: white; text-align: center; margin-bottom: 30px;
+            font-size: 2.5em; text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+        }
+        .info-box {
+            background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3);
+            border-radius: 8px; padding: 15px; margin-bottom: 20px;
+            color: white; text-align: center;
+        }
+        .paste-box {
+            background: white; border-radius: 12px; padding: 30px;
+            margin-bottom: 30px; box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+        .controls-row {
+            display: flex; justify-content: space-between; align-items: center;
+            flex-wrap: wrap; gap: 15px;
+        }
+        .paste-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white; border: none; padding: 15px 40px; font-size: 18px;
+            border-radius: 8px; cursor: pointer; transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+        }
+        .paste-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6); }
+        .paste-btn:active { transform: translateY(0); }
+        .auto-refresh-control {
+            display: flex; align-items: center; gap: 10px;
+            background: #f8f9fa; padding: 10px 20px; border-radius: 8px;
+        }
+        .switch {
+            position: relative; display: inline-block;
+            width: 50px; height: 24px;
+        }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider {
+            position: absolute; cursor: pointer; top: 0; left: 0;
+            right: 0; bottom: 0; background-color: #ccc;
+            transition: .4s; border-radius: 24px;
+        }
+        .slider:before {
+            position: absolute; content: ""; height: 18px; width: 18px;
+            left: 3px; bottom: 3px; background-color: white;
+            transition: .4s; border-radius: 50%;
+        }
+        input:checked + .slider { background-color: #28a745; }
+        input:checked + .slider:before { transform: translateX(26px); }
+        .refresh-label {
+            font-size: 14px; color: #333; font-weight: 500;
+            display: flex; align-items: center; gap: 5px;
+        }
+        .refresh-indicator {
+            display: none; color: #28a745; font-size: 12px;
+            animation: pulse 2s infinite;
+        }
+        .refresh-indicator.active { display: inline; }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .list-container {
+            background: white; border-radius: 12px; padding: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+        .list-title { font-size: 1.5em; margin-bottom: 20px; color: #333; }
+        .clipboard-list { list-style: none; }
+        .clipboard-item {
+            background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 8px;
+            padding: 15px; margin-bottom: 10px; display: flex;
+            justify-content: space-between; align-items: center;
+            transition: all 0.3s ease; position: relative;
+        }
+        .clipboard-item.pinned { background: #fff3cd; border-color: #ffc107; }
+        .clipboard-item:hover { background: #e9ecef; transform: translateX(5px); }
+        .clipboard-item.pinned:hover { background: #ffe69c; }
+        .item-content {
+            flex: 1; margin-right: 15px; word-break: break-all;
+            color: #333; position: relative; transition: max-height 0.3s ease;
+        }
+        .item-content.truncated {
+            max-height: 3em; overflow: hidden; cursor: pointer;
+        }
+        .item-content.truncated::after {
+            content: '...'; position: absolute; bottom: 0; right: 0;
+            background: inherit; padding-left: 5px;
+        }
+        .item-content.expanded { max-height: none; }
+        .item-content.expanded::after { display: none; }
+        .pin-badge {
+            position: absolute; top: 5px; left: 5px;
+            background: #ffc107; color: #856404;
+            padding: 2px 8px; border-radius: 4px;
+            font-size: 12px; font-weight: bold;
+        }
+        .button-group { display: flex; gap: 8px; }
+        .action-btn {
+            color: white; border: none; padding: 8px 16px;
+            border-radius: 6px; cursor: pointer; transition: all 0.3s ease;
+            white-space: nowrap; font-size: 14px;
+        }
+        .copy-btn { background: #28a745; }
+        .copy-btn:hover { background: #218838; transform: scale(1.05); }
+        .pin-btn { background: #ffc107; color: #856404; }
+        .pin-btn:hover { background: #e0a800; transform: scale(1.05); }
+        .pin-btn.pinned { background: #856404; color: white; }
+        .delete-btn { background: #dc3545; }
+        .delete-btn:hover { background: #c82333; transform: scale(1.05); }
+        .action-btn:active { transform: scale(0.95); }
+        .empty-message {
+            text-align: center; color: #6c757d;
+            padding: 40px; font-size: 1.1em;
+        }
+        .notification {
+            position: fixed; top: 20px; right: 20px;
+            background: #28a745; color: white; padding: 15px 25px;
+            border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            opacity: 0; transform: translateY(-20px);
+            transition: all 0.3s ease; z-index: 1000;
+        }
+        .notification.show { opacity: 1; transform: translateY(0); }
+        .modal {
+            display: none; position: fixed; top: 0; left: 0;
+            width: 100%; height: 100%; background: rgba(0, 0, 0, 0.5);
+            z-index: 2000; justify-content: center; align-items: center;
+        }
+        .modal.show { display: flex; }
+        .modal-content {
+            background: white; padding: 30px; border-radius: 12px;
+            max-width: 400px; text-align: center;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+        .modal-title { font-size: 1.5em; margin-bottom: 15px; color: #333; }
+        .modal-text { color: #666; margin-bottom: 25px; }
+        .modal-buttons { display: flex; gap: 10px; justify-content: center; }
+        .modal-btn {
+            padding: 10px 30px; border: none; border-radius: 6px;
+            cursor: pointer; font-size: 16px; transition: all 0.3s ease;
+        }
+        .modal-btn-confirm { background: #dc3545; color: white; }
+        .modal-btn-confirm:hover { background: #c82333; }
+        .modal-btn-cancel { background: #6c757d; color: white; }
+        .modal-btn-cancel:hover { background: #5a6268; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📋 剪贴板管理器</h1>
+        <div class="info-box">
+            ℹ️ 这是纯前端演示版本，数据存储在浏览器本地存储中
+        </div>
+        <div class="paste-box">
+            <div class="controls-row">
+                <button class="paste-btn" onclick="pasteFromClipboard()">📌 粘贴剪贴板内容</button>
+                <div class="auto-refresh-control">
+                    <span class="refresh-label">
+                        🔄 自动刷新
+                        <span class="refresh-indicator" id="refreshIndicator">●</span>
+                    </span>
+                    <label class="switch">
+                        <input type="checkbox" id="autoRefreshToggle" onchange="toggleAutoRefresh()">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+            </div>
+        </div>
+        <div class="list-container">
+            <h2 class="list-title">剪贴板历史</h2>
+            <ul id="clipboardList" class="clipboard-list">
+                <li class="empty-message">暂无内容，点击上方按钮粘贴</li>
+            </ul>
+        </div>
+    </div>
+    <div id="notification" class="notification"></div>
+    <div id="deleteModal" class="modal">
+        <div class="modal-content">
+            <h3 class="modal-title">确认删除</h3>
+            <p class="modal-text">确定要删除这条记录吗？</p>
+            <div class="modal-buttons">
+                <button class="modal-btn modal-btn-confirm" onclick="confirmDelete()">确认删除</button>
+                <button class="modal-btn modal-btn-cancel" onclick="cancelDelete()">取消</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const STORAGE_KEY = 'clipboard_items';
+        const TRUNCATE_LENGTH = 1000;
+        const REFRESH_INTERVAL = 2000;
+        let items = [];
+        let nextId = 1;
+        let deleteItemId = null;
+        let autoRefreshEnabled = false;
+        let refreshTimer = null;
+
+        function init() {
+            const stored = localStorage.getItem(STORAGE_KEY);
+            if (stored) {
+                const data = JSON.parse(stored);
+                items = data.items || [];
+                nextId = data.nextId || 1;
+            }
+            renderList();
+        }
+
+        function saveToStorage() {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify({
+                items: items,
+                nextId: nextId
+            }));
+        }
+
+        function showNotification(message) {
+            const notification = document.getElementById('notification');
+            notification.textContent = message;
+            notification.classList.add('show');
+            setTimeout(() => {
+                notification.classList.remove('show');
+            }, 2000);
+        }
+
+        function showDeleteModal(id) {
+            deleteItemId = id;
+            document.getElementById('deleteModal').classList.add('show');
+        }
+
+        function cancelDelete() {
+            deleteItemId = null;
+            document.getElementById('deleteModal').classList.remove('show');
+        }
+
+        function confirmDelete() {
+            if (deleteItemId === null) return;
+            
+            items = items.filter(item => item.id !== deleteItemId);
+            saveToStorage();
+            renderList();
+            showNotification('✅ 已删除');
+            cancelDelete();
+        }
+
+        async function pasteFromClipboard() {
+            try {
+                const text = await navigator.clipboard.readText();
+                
+                if (!text || text.trim() === '') {
+                    showNotification('⚠️ 剪贴板为空');
+                    return;
+                }
+
+                const newItem = {
+                    id: nextId++,
+                    content: text,
+                    pinned: false
+                };
+                items.unshift(newItem);
+                
+                saveToStorage();
+                renderList();
+                showNotification('✅ 已添加到列表');
+            } catch (err) {
+                console.error('粘贴失败:', err);
+                showNotification('❌ 无法读取剪贴板（请允许权限）');
+            }
+        }
+
+        async function copyToClipboard(text) {
+            try {
+                await navigator.clipboard.writeText(text);
+                showNotification('✅ 已复制到剪贴板');
+            } catch (err) {
+                console.error('复制失败:', err);
+                showNotification('❌ 复制失败');
+            }
+        }
+
+        function togglePin(id) {
+            const item = items.find(i => i.id === id);
+            if (item) {
+                item.pinned = !item.pinned;
+                saveToStorage();
+                renderList();
+            }
+        }
+
+        function toggleExpand(element) {
+            element.classList.toggle('truncated');
+            element.classList.toggle('expanded');
+        }
+
+        function toggleAutoRefresh() {
+            autoRefreshEnabled = document.getElementById('autoRefreshToggle').checked;
+            const indicator = document.getElementById('refreshIndicator');
+            
+            if (autoRefreshEnabled) {
+                indicator.classList.add('active');
+                startAutoRefresh();
+                showNotification('🔄 自动刷新已开启');
+            } else {
+                indicator.classList.remove('active');
+                stopAutoRefresh();
+                showNotification('⏸️ 自动刷新已关闭');
+            }
+        }
+
+        function startAutoRefresh() {
+            if (refreshTimer) clearInterval(refreshTimer);
+            refreshTimer = setInterval(() => {
+                const stored = localStorage.getItem(STORAGE_KEY);
+                if (stored) {
+                    const data = JSON.parse(stored);
+                    items = data.items || [];
+                    nextId = data.nextId || 1;
+                    renderList(true);
+                }
+            }, REFRESH_INTERVAL);
+        }
+
+        function stopAutoRefresh() {
+            if (refreshTimer) {
+                clearInterval(refreshTimer);
+                refreshTimer = null;
+            }
+        }
+
+        function renderList(silent = false) {
+            const list = document.getElementById('clipboardList');
+            
+            if (!items || items.length === 0) {
+                list.innerHTML = '<li class="empty-message">暂无内容，点击上方按钮粘贴</li>';
+                return;
+            }
+
+            const pinnedItems = items.filter(i => i.pinned);
+            const normalItems = items.filter(i => !i.pinned);
+            const sortedItems = [...pinnedItems, ...normalItems];
+
+            list.innerHTML = '';
+            sortedItems.forEach(item => {
+                const li = document.createElement('li');
+                li.className = 'clipboard-item' + (item.pinned ? ' pinned' : '');
+                
+                if (item.pinned) {
+                    const badge = document.createElement('div');
+                    badge.className = 'pin-badge';
+                    badge.textContent = '📌 置顶';
+                    li.appendChild(badge);
+                }
+                
+                const contentDiv = document.createElement('div');
+                contentDiv.className = 'item-content';
+                
+                const needTruncate = item.content.length > TRUNCATE_LENGTH;
+                if (needTruncate) {
+                    contentDiv.classList.add('truncated');
+                    contentDiv.onclick = () => toggleExpand(contentDiv);
+                }
+                
+                contentDiv.textContent = item.content;
+                
+                const buttonGroup = document.createElement('div');
+                buttonGroup.className = 'button-group';
+                
+                const copyBtn = document.createElement('button');
+                copyBtn.className = 'action-btn copy-btn';
+                copyBtn.textContent = '复制';
+                copyBtn.onclick = () => copyToClipboard(item.content);
+                
+                const pinBtn = document.createElement('button');
+                pinBtn.className = 'action-btn pin-btn' + (item.pinned ? ' pinned' : '');
+                pinBtn.textContent = item.pinned ? '取消置顶' : '置顶';
+                pinBtn.onclick = () => togglePin(item.id);
+                
+                const deleteBtn = document.createElement('button');
+                deleteBtn.className = 'action-btn delete-btn';
+                deleteBtn.textContent = '删除';
+                deleteBtn.onclick = () => showDeleteModal(item.id);
+                
+                buttonGroup.appendChild(copyBtn);
+                buttonGroup.appendChild(pinBtn);
+                buttonGroup.appendChild(deleteBtn);
+                
+                li.appendChild(contentDiv);
+                li.appendChild(buttonGroup);
+                list.appendChild(li);
+            });
+        }
+
+        init();
+    </script>
+</body>
+</html>

@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>剪贴板管理器 - 调试版</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container { max-width: 800px; margin: 0 auto; }
+        h1 {
+            color: white; text-align: center; margin-bottom: 20px;
+            font-size: 2.5em; text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+        }
+        .debug-box {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 12px; padding: 20px; margin-bottom: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+        .debug-title {
+            font-size: 1.2em; margin-bottom: 15px; color: #333;
+            font-weight: bold;
+        }
+        .debug-item {
+            padding: 8px; margin: 5px 0; border-radius: 4px;
+            font-size: 14px; font-family: monospace;
+        }
+        .debug-success { background: #d4edda; color: #155724; }
+        .debug-error { background: #f8d7da; color: #721c24; }
+        .debug-warning { background: #fff3cd; color: #856404; }
+        .debug-info { background: #d1ecf1; color: #0c5460; }
+        .paste-box {
+            background: white; border-radius: 12px; padding: 30px;
+            margin-bottom: 30px; box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            text-align: center;
+        }
+        .paste-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white; border: none; padding: 15px 40px; font-size: 18px;
+            border-radius: 8px; cursor: pointer; transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+        }
+        .paste-btn:hover { transform: translateY(-2px); }
+        .paste-btn:disabled {
+            opacity: 0.5; cursor: not-allowed;
+        }
+        .test-buttons {
+            display: flex; gap: 10px; justify-content: center;
+            margin-top: 15px; flex-wrap: wrap;
+        }
+        .test-btn {
+            background: #28a745; color: white; border: none;
+            padding: 10px 20px; border-radius: 6px; cursor: pointer;
+            font-size: 14px;
+        }
+        .test-btn:hover { background: #218838; }
+        .list-container {
+            background: white; border-radius: 12px; padding: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+        .clipboard-list { list-style: none; }
+        .clipboard-item {
+            background: #f8f9fa; border: 1px solid #e9ecef;
+            border-radius: 8px; padding: 15px; margin-bottom: 10px;
+        }
+        .notification {
+            position: fixed; top: 20px; right: 20px;
+            background: #28a745; color: white; padding: 15px 25px;
+            border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            opacity: 0; transform: translateY(-20px);
+            transition: all 0.3s ease; z-index: 1000;
+            max-width: 400px;
+        }
+        .notification.show { opacity: 1; transform: translateY(0); }
+        .notification.error { background: #dc3545; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📋 剪贴板管理器 - 调试版</h1>
+        
+        <div class="debug-box">
+            <div class="debug-title">🔍 系统检测结果</div>
+            <div id="debugInfo"></div>
+        </div>
+
+        <div class="paste-box">
+            <button class="paste-btn" id="pasteBtn" onclick="pasteFromClipboard()">
+                📌 粘贴剪贴板内容
+            </button>
+            <div class="test-buttons">
+                <button class="test-btn" onclick="checkPermissions()">检查权限</button>
+                <button class="test-btn" onclick="requestPermission()">请求权限</button>
+                <button class="test-btn" onclick="testClipboard()">测试剪贴板</button>
+            </div>
+        </div>
+
+        <div class="list-container">
+            <h2>剪贴板历史</h2>
+            <ul id="clipboardList" class="clipboard-list">
+                <li>暂无内容</li>
+            </ul>
+        </div>
+    </div>
+
+    <div id="notification" class="notification"></div>
+
+    <script>
+        let items = [];
+        let nextId = 1;
+
+        // 页面加载时检测
+        window.addEventListener('load', () => {
+            detectEnvironment();
+        });
+
+        function addDebugInfo(message, type = 'info') {
+            const debugDiv = document.getElementById('debugInfo');
+            const item = document.createElement('div');
+            item.className = `debug-item debug-${type}`;
+            item.textContent = message;
+            debugDiv.appendChild(item);
+        }
+
+        function detectEnvironment() {
+            const debugDiv = document.getElementById('debugInfo');
+            debugDiv.innerHTML = '';
+
+            // 1. 检查浏览器
+            addDebugInfo(`浏览器: ${navigator.userAgent.split(' ').pop()}`, 'info');
+            
+            // 2. 检查协议
+            const protocol = window.location.protocol;
+            if (protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+                addDebugInfo(`✅ 协议: ${protocol} (支持剪贴板API)`, 'success');
+            } else {
+                addDebugInfo(`❌ 协议: ${protocol} (需要 HTTPS 或 localhost)`, 'error');
+            }
+
+            // 3. 检查 Clipboard API 支持
+            if (navigator.clipboard) {
+                addDebugInfo('✅ 浏览器支持 Clipboard API', 'success');
+            } else {
+                addDebugInfo('❌ 浏览器不支持 Clipboard API', 'error');
+                document.getElementById('pasteBtn').disabled = true;
+            }
+
+            // 4. 检查 readText 方法
+            if (navigator.clipboard && navigator.clipboard.readText) {
+                addDebugInfo('✅ 支持 clipboard.readText()', 'success');
+            } else {
+                addDebugInfo('❌ 不支持 clipboard.readText()', 'error');
+            }
+
+            // 5. 检查是否在 iframe 中
+            if (window.self !== window.top) {
+                addDebugInfo('⚠️ 警告: 页面在 iframe 中，可能影响权限', 'warning');
+            }
+
+            // 6. 检查 Permissions API
+            if (navigator.permissions) {
+                addDebugInfo('✅ 浏览器支持 Permissions API', 'success');
+                checkPermissions();
+            } else {
+                addDebugInfo('⚠️ 浏览器不支持 Permissions API（无法检查权限状态）', 'warning');
+            }
+        }
+
+        async function checkPermissions() {
+            if (!navigator.permissions) {
+                showNotification('浏览器不支持权限检查 API', 'error');
+                return;
+            }
+
+            try {
+                const result = await navigator.permissions.query({ name: 'clipboard-read' });
+                const status = result.state;
+                
+                if (status === 'granted') {
+                    addDebugInfo('✅ 剪贴板读取权限: 已授权', 'success');
+                } else if (status === 'prompt') {
+                    addDebugInfo('⚠️ 剪贴板读取权限: 需要询问用户', 'warning');
+                } else {
+                    addDebugInfo('❌ 剪贴板读取权限: 已拒绝', 'error');
+                }
+
+                result.onchange = () => {
+                    addDebugInfo(`权限状态变更: ${result.state}`, 'info');
+                };
+            } catch (err) {
+                addDebugInfo(`权限检查失败: ${err.message}`, 'warning');
+            }
+        }
+
+        async function requestPermission() {
+            try {
+                await navigator.clipboard.readText();
+                showNotification('✅ 权限请求成功！', 'success');
+                checkPermissions();
+            } catch (err) {
+                showNotification(`❌ 权限请求失败: ${err.message}`, 'error');
+                addDebugInfo(`权限请求错误: ${err.name} - ${err.message}`, 'error');
+            }
+        }
+
+        async function testClipboard() {
+            addDebugInfo('--- 开始测试剪贴板 ---', 'info');
+            
+            try {
+                addDebugInfo('正在尝试读取剪贴板...', 'info');
+                const text = await navigator.clipboard.readText();
+                addDebugInfo(`✅ 成功读取! 内容长度: ${text.length} 字符`, 'success');
+                addDebugInfo(`内容预览: "${text.substring(0, 50)}..."`, 'info');
+                showNotification('✅ 剪贴板测试成功！', 'success');
+            } catch (err) {
+                addDebugInfo(`❌ 读取失败: ${err.name}`, 'error');
+                addDebugInfo(`错误详情: ${err.message}`, 'error');
+                showNotification(`❌ 测试失败: ${err.message}`, 'error');
+                
+                // 给出具体建议
+                if (err.name === 'NotAllowedError') {
+                    addDebugInfo('💡 建议: 用户拒绝了权限，请在浏览器设置中允许剪贴板访问', 'warning');
+                } else if (err.name === 'NotFoundError') {
+                    addDebugInfo('💡 建议: 剪贴板可能为空，请先复制一些内容', 'warning');
+                }
+            }
+        }
+
+        async function pasteFromClipboard() {
+            try {
+                addDebugInfo('用户点击粘贴按钮', 'info');
+                const text = await navigator.clipboard.readText();
+                
+                if (!text || text.trim() === '') {
+                    showNotification('⚠️ 剪贴板为空', 'error');
+                    addDebugInfo('剪贴板内容为空', 'warning');
+                    return;
+                }
+
+                const newItem = {
+                    id: nextId++,
+                    content: text
+                };
+                items.unshift(newItem);
+                
+                renderList();
+                showNotification('✅ 已添加到列表', 'success');
+                addDebugInfo(`✅ 成功添加内容 (${text.length} 字符)`, 'success');
+            } catch (err) {
+                showNotification(`❌ ${err.name}: ${err.message}`, 'error');
+                addDebugInfo(`❌ 粘贴失败: ${err.name} - ${err.message}`, 'error');
+                
+                // 详细错误分析
+                if (err.name === 'NotAllowedError') {
+                    addDebugInfo('💡 原因: 用户拒绝了剪贴板权限', 'warning');
+                    addDebugInfo('💡 解决: 请在浏览器地址栏左侧点击锁图标，允许剪贴板权限', 'warning');
+                } else if (err.name === 'NotFoundError') {
+                    addDebugInfo('💡 原因: 剪贴板中没有文本内容', 'warning');
+                }
+            }
+        }
+
+        function renderList() {
+            const list = document.getElementById('clipboardList');
+            if (items.length === 0) {
+                list.innerHTML = '<li>暂无内容</li>';
+                return;
+            }
+
+            list.innerHTML = items.map(item => `
+                <li class="clipboard-item">
+                    <div><strong>ID ${item.id}:</strong></div>
+                    <div>${escapeHtml(item.content.substring(0, 200))}${item.content.length > 200 ? '...' : ''}</div>
+                </li>
+            `).join('');
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function showNotification(message, type = 'success') {
+            const notification = document.getElementById('notification');
+            notification.textContent = message;
+            notification.className = 'notification ' + (type === 'error' ? 'error' : '');
+            notification.classList.add('show');
+            setTimeout(() => {
+                notification.classList.remove('show');
+            }, 4000);
+        }
+    </script>
+</body>
+</html>
